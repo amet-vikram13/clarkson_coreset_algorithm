@@ -1,8 +1,9 @@
+from time import time
+
 import gurobipy as gp
 import numpy as np
 from gurobipy import GRB
 from tqdm import tqdm
-from time import time
 
 data_path = "/data/local/AA/data/"
 coresets_path = "/data/local/AA/results/coresets/"
@@ -106,33 +107,40 @@ def clarksonCoreset(X, ind_E, ind_S, dataset_name):
         print(e)
     X_C = X[ind_E].copy()
     t_end = time()
-    np.savez(
-        coresets_path + dataset_name + "_clarkson_coreset.npz",
-        X=X_C,
-        cs_time=t_end - t_start
-    )
+    if dataset_name is not None:
+        np.savez(
+            coresets_path + dataset_name + "_clarkson_coreset.npz",
+            X=X_C,
+            cs_time=t_end - t_start
+        )
     return X_C
 
-def computeClarksonCoreset(X, dataset_name):
+def computeClarksonCoresetWrapper(X, dataset_name):
     X_C = None
+
+    # Assert that X is a numpy array
+    assert isinstance(X, np.ndarray), "X must be a numpy array"
+
+    # initialize two extreme points via farthestPointsSetUsingMinMax function
+    # maintain the initialized indices as set E. Note: len(E) < len(X)
+    # maintain the indices not belonging to E as set S. Note: len(S) = len(X) - len(E)
+    # any index not belonging to E is a candidate for the next coreset
+    ind_E = farthestPointsSetUsingMinMax(X)
+    ind_S = np.setdiff1d(np.arange(len(X)), np.array(ind_E)).tolist()
+
+    # obtain initial coreset using Clarkson's algorithm
+    X_C = clarksonCoreset(X, ind_E, ind_S, dataset_name)
+
+    return X_C
+
+def computeClarksonCoreset(X, dataset_name=None):
+    if dataset_name is None:
+        return computeClarksonCoresetWrapper(X, dataset_name)
     try:
         data = np.load(coresets_path + dataset_name + "_clarkson_coreset.npz")
-        X_C = data["X"]
+        return data["X"]
     except FileNotFoundError:
-        # Assert that X is a numpy array
-        assert isinstance(X, np.ndarray), "X must be a numpy array"
-
-        # initialize two extreme points via farthestPointsSetUsingMinMax function
-        # maintain the initialized indices as set E. Note: len(E) < len(X)
-        # maintain the indices not belonging to E as set S. Note: len(S) = len(X) - len(E)
-        # any index not belonging to E is a candidate for the next coreset
-        ind_E = farthestPointsSetUsingMinMax(X)
-        ind_S = np.setdiff1d(np.arange(len(X)), np.array(ind_E)).tolist()
-
-        # obtain initial coreset using Clarkson's algorithm
-        X_C = clarksonCoreset(X, ind_E, ind_S, dataset_name)
-    finally:
-        return X_C
+        return computeClarksonCoresetWrapper(X, dataset_name)
 
 if __name__ == "__main__":
     pass
