@@ -8,12 +8,91 @@ from tqdm import tqdm
 data_path = "/data/local/AA/data/"
 coresets_path = "/data/local/AA/results/coresets/"
 
+def triangleAlgorithm(X, ind_E, s, epsilon=1e-6):
+    S = X[ind_E].copy()
+    p = X[s].copy()
+
+    # Step 0: Initialization
+    # Find v with minimum distance to p
+    v = min(S, key=lambda vi: np.linalg.norm(p - vi))
+    p_prime = v.copy()
+
+    # Coefficients initialization
+    n = len(S)
+    alphas = np.zeros(n)
+    alphas[S.index(v)] = 1.0
+
+    while True:
+        # Step 1: Stopping Criteria and Pivot Selection
+        # Check if current point is ε-approximate solution
+        if np.linalg.norm(p - p_prime) < epsilon:
+            return p_prime
+
+        # Find pivot point
+        pivot_index = None
+        for j, vj in enumerate(S):
+            if np.linalg.norm(p_prime - vj) >= np.linalg.norm(p_prime - p):
+                pivot_index = j
+                break
+
+        # If no pivot exists, return p_prime as witness
+        if pivot_index is None:
+            return p_prime
+
+        # Step 2: Compute Step Size and Update
+        vj = S[pivot_index]
+
+        # Compute step size (alpha)
+        numerator = np.dot((p - p_prime).T, vj - p_prime)
+        denominator = np.linalg.norm(vj - p_prime) ** 2
+
+        # Avoid division by zero
+        alpha = numerator / denominator if denominator != 0 else 0
+        alpha = max(0, min(1, alpha))  # Clip alpha between 0 and 1
+
+        # Update p_prime and coefficients
+        p_prime_new = (1 - alpha) * p_prime + alpha * vj
+
+        # Update coefficients
+        alphas_new = alphas.copy()
+        alphas_new[pivot_index] = (1 - alpha) * alphas[pivot_index] + alpha
+
+        # Replace current point and coefficients
+        p_prime = p_prime_new
+        alphas = alphas_new
+
+
+def isConvexCombinationTA(X, ind_E, s):
+    try:
+        epsilon = 1e-6
+
+        # Run Triangle Algorithm
+        result = triangleAlgorithm(X, ind_E, s)
+
+        # Check proximity conditions
+        R = max(np.linalg.norm(X[s] - X[vi]) for vi in ind_E)
+
+        # Check relative error condition
+        if np.linalg.norm(result - X[s]) / R < epsilon:
+            return None
+
+        # Check witness condition
+        for vi in ind_E:
+            if np.linalg.norm(result - X[vi]) < np.linalg.norm(X[s] - X[vi]):
+                return result
+
+        return result
+
+    except Exception as e:
+        print(f"Error in convex combination check: {e}")
+        return np.array([])
+
 # Determines whether a point s is a convex combination
 # of the points in the set E.
 # Returns None if s is a convex combination of E,
 # otherwise returns a witness vector that certifies
 # that s is not a convex combination of E.
-def isConvexCombination(X, ind_E, s):
+def isConvexCombinationCK(X, ind_E, s):
     E = X[ind_E].copy()
     P = X[s].copy()
 
@@ -59,6 +138,14 @@ def isConvexCombination(X, ind_E, s):
             dual.append(constr.getAttr(GRB.Attr.FarkasDual))
         return np.array(dual)
 
+def isConvexCombination(X, ind_E, s, method="CK"):
+    if method == "CK":
+        return isConvexCombinationCK(X, ind_E, s)
+    elif method == "TA":
+        return isConvexCombinationTA(X, ind_E, s)
+    else:
+        raise ValueError("Invalid method name")
+
 # finds set of points that are farthest apart
 # using simple min max along each dimension of X
 def farthestPointsSetUsingMinMax(X):
@@ -77,7 +164,7 @@ def farthestPointsSetUsingMinMax(X):
 
 # proposed coreset
 # "clarkson-cs" in the paper "More output-sensitive geometric algorithms"
-def clarksonCoreset(X, ind_E, ind_S, dataset_name):
+def clarksonCoreset(X, ind_E, ind_S, dataset_name, method):
     t_start = time()
     try:
         pbar = tqdm(total=len(ind_S), desc="clarkson-cs computation:")
@@ -86,7 +173,7 @@ def clarksonCoreset(X, ind_E, ind_S, dataset_name):
                 pbar.write(
                     "Current Size of coreset: {}".format(len(ind_E)))
             s = ind_S.pop(0)
-            witness_vector = isConvexCombination(X, ind_E, s)
+            witness_vector = isConvexCombination(X, ind_E, s, method)
             if witness_vector is not None:
                 max_dot_product = np.dot(-1*witness_vector, X[s])
                 p_prime = None
@@ -115,7 +202,7 @@ def clarksonCoreset(X, ind_E, ind_S, dataset_name):
         )
     return X_C
 
-def computeClarksonCoresetWrapper(X, dataset_name):
+def computeClarksonCoresetWrapper(X, dataset_name, method):
     X_C = None
 
     # Assert that X is a numpy array
@@ -129,18 +216,18 @@ def computeClarksonCoresetWrapper(X, dataset_name):
     ind_S = np.setdiff1d(np.arange(len(X)), np.array(ind_E)).tolist()
 
     # obtain initial coreset using Clarkson's algorithm
-    X_C = clarksonCoreset(X, ind_E, ind_S, dataset_name)
+    X_C = clarksonCoreset(X, ind_E, ind_S, dataset_name, method)
 
     return X_C
 
-def computeClarksonCoreset(X, dataset_name=None):
+def computeClarksonCoreset(X, dataset_name=None, method="CK"):
     if dataset_name is None:
-        return computeClarksonCoresetWrapper(X, dataset_name)
+        return computeClarksonCoresetWrapper(X, dataset_name, method)
     try:
         data = np.load(coresets_path + dataset_name + "_clarkson_coreset.npz")
         return data["X"]
     except FileNotFoundError:
-        return computeClarksonCoresetWrapper(X, dataset_name)
+        return computeClarksonCoresetWrapper(X, dataset_name, method)
 
 if __name__ == "__main__":
     pass
