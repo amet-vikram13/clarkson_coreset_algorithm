@@ -8,63 +8,53 @@ from tqdm import tqdm
 data_path = "/data/local/AA/data/"
 coresets_path = "/data/local/AA/results/coresets/"
 
-def triangleAlgorithm(X, ind_E, s, epsilon=1e-6):
+EPSILON = 1e-6
+
+def triangleAlgorithm(X, ind_E, s, epsilon=EPSILON):
     S = X[ind_E].copy()
     p = X[s].copy()
 
     # Step 0: Initialization
     # Find v with minimum distance to p
-    v = min(S, key=lambda vi: np.linalg.norm(p - vi))
-    p_prime = v.copy()
-
-    # Coefficients initialization
-    n = len(S)
-    alphas = np.zeros(n)
-    alphas[S.index(v)] = 1.0
+    idx = 0
+    for vi in range(1,len(S)):
+        if np.linalg.norm(p - S[vi]) < np.linalg.norm(p - S[idx]):
+            idx = vi
+    p_prime = S[idx].copy()
+    v = S[idx].copy()
 
     while True:
         # Step 1: Stopping Criteria and Pivot Selection
         # Check if current point is ε-approximate solution
-        if np.linalg.norm(p - p_prime) < epsilon:
+        if np.linalg.norm(p - p_prime) < epsilon * np.linalg.norm(p - v):
             return p_prime
 
         # Find pivot point
         pivot_index = None
-        for j, vj in enumerate(S):
-            if np.linalg.norm(p_prime - vj) >= np.linalg.norm(p_prime - p):
-                pivot_index = j
+        for vj in range(len(S)):
+            if np.linalg.norm(p_prime - S[vj]) >= np.linalg.norm(p - S[vj]):
+                pivot_index = vj
                 break
 
         # If no pivot exists, return p_prime as witness
         if pivot_index is None:
             return p_prime
 
-        # Step 2: Compute Step Size and Update
-        vj = S[pivot_index]
+        vj = S[pivot_index].copy()
+        v = S[pivot_index].copy()
 
-        # Compute step size (alpha)
+        # Compute alpha
         numerator = np.dot((p - p_prime).T, vj - p_prime)
-        denominator = np.linalg.norm(vj - p_prime) ** 2
+        denominator = np.square(np.linalg.norm(vj - p_prime))
 
-        # Avoid division by zero
-        alpha = numerator / denominator if denominator != 0 else 0
-        alpha = max(0, min(1, alpha))  # Clip alpha between 0 and 1
+        alpha = numerator / denominator
 
-        # Update p_prime and coefficients
-        p_prime_new = (1 - alpha) * p_prime + alpha * vj
-
-        # Update coefficients
-        alphas_new = alphas.copy()
-        alphas_new[pivot_index] = (1 - alpha) * alphas[pivot_index] + alpha
-
-        # Replace current point and coefficients
-        p_prime = p_prime_new
-        alphas = alphas_new
-
+        # Update p_prime
+        p_prime = (1 - alpha) * p_prime + alpha * vj
 
 def isConvexCombinationTA(X, ind_E, s):
     try:
-        epsilon = 1e-6
+        epsilon = EPSILON
 
         # Run Triangle Algorithm
         result = triangleAlgorithm(X, ind_E, s)
