@@ -8,74 +8,62 @@ from tqdm import tqdm
 data_path = "/data/local/AA/data/"
 coresets_path = "/data/local/AA/results/coresets/"
 
-EPSILON = 1e-6
-
-def triangleAlgorithm(X, ind_E, s, epsilon=EPSILON):
+def triangleAlgorithm(X, ind_E, s):
     S = X[ind_E].copy()
     p = X[s].copy()
+
+    # n -- number of points in S
+    # d -- dimension of the points
+    n, d = S.shape
+
+    # calculating the epsilon value
+    norm_S = np.sum(S * S, axis=0)
+    max_norm = np.sqrt(np.max(norm_S))
+    epsilon = 0.0002 * max_norm
+
+    # distance function
+    dist = lambda x,y : np.linalg.norm(x - y, ord=2)
 
     # Step 0: Initialization
     # Find v with minimum distance to p
     idx = 0
-    for vi in range(1,len(S)):
-        if np.linalg.norm(p - S[vi]) < np.linalg.norm(p - S[idx]):
+    for vi in range(1,n):
+        if dist(p,S[vi]) < dist(p,S[idx]):
             idx = vi
     p_prime = S[idx].copy()
-    v = S[idx].copy()
+    alpha = np.zeros(n)
+    alpha[idx] = 1
 
-    while True:
-        # Step 1: Stopping Criteria and Pivot Selection
-        # Check if current point is ε-approximate solution
-        if np.linalg.norm(p - p_prime) < epsilon * np.linalg.norm(p - v):
-            return p_prime
+    in_or_out = True
+    iter_count = 0
+    while dist(p,p_prime) > epsilon:
+        iter_count += 1
 
-        # Find pivot point
-        pivot_index = None
-        for vj in range(len(S)):
-            if np.linalg.norm(p_prime - S[vj]) >= np.linalg.norm(p - S[vj]):
-                pivot_index = vj
-                break
+        gd = S @ (p - p_prime).T
+        p_norm = p.T @ p
+        p_prime_norm = p_prime.T @ p_prime
+        dist_diff = (p_norm - p_prime_norm) - 2*gd
 
-        # If no pivot exists, return p_prime as witness
-        if pivot_index is None:
-            return p_prime
+        index_pivot = np.where(dist_diff <= 0)[0]
 
-        vj = S[pivot_index].copy()
-        v = S[pivot_index].copy()
+        if len(index_pivot) == 0:
+            found = False
+        else:
+            v_index = np.argmax(gd)
+            beta = ((p_prime - S[v_index]).T @ (p_prime - p)) / ((p_prime - S[v_index]).T @ (p_prime - S[v_index]))
+            alpha = (1 - beta) * alpha
+            alpha[v_index] += beta
+            p_prime = (1 - beta) * p_prime + beta * S[v_index]
+            found = True
 
-        # Compute alpha
-        numerator = np.dot((p - p_prime).T, vj - p_prime)
-        denominator = np.square(np.linalg.norm(vj - p_prime))
+        if not found:
+            in_or_out = False
+            break
 
-        alpha = numerator / denominator
-
-        # Update p_prime
-        p_prime = (1 - alpha) * p_prime + alpha * vj
+    return None if in_or_out else p_prime
 
 def isConvexCombinationTA(X, ind_E, s):
-    try:
-        epsilon = EPSILON
-
-        # Run Triangle Algorithm
-        result = triangleAlgorithm(X, ind_E, s)
-
-        # Check proximity conditions
-        R = max(np.linalg.norm(X[s] - X[vi]) for vi in ind_E)
-
-        # Check relative error condition
-        if np.linalg.norm(result - X[s]) / R < epsilon:
-            return None
-
-        # Check witness condition
-        for vi in ind_E:
-            if np.linalg.norm(result - X[vi]) < np.linalg.norm(X[s] - X[vi]):
-                return result
-
-        return result
-
-    except Exception as e:
-        print(f"Error in convex combination check: {e}")
-        return np.array([])
+    return triangleAlgorithm(X, ind_E, s)
 
 # Determines whether a point s is a convex combination
 # of the points in the set E.
